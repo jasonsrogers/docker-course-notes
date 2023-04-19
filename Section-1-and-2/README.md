@@ -479,3 +479,156 @@ if we list the images: `docker images`
 REPOSITORY        TAG        IMAGE ID       CREATED          SIZE
 goals             latest     4a72056453f0   26 seconds ago   923MB
 
+## sharing images
+
+first advantage of docker is that we don't have to manage dependencies
+
+second advantage is that we can share images and containers
+
+### sharing images and containers
+
+everyone who has the image can create a container based on it
+
+two ways to share
+
+- share the Dockerfile and code and let the other person build the image
+- share a complete built image
+
+Sharing the dockerfile, simply run `docker build .`
+Important , the Dockerfile might need the surrounding files/folders (e.g source code)
+
+Sharing image, download the  and run a container based on it. No build steps required, everything is included in the image (which is why it's so big)
+
+### sharing via docker hub or private registry
+
+#### docker hub
+
+Official docker hub: https://hub.docker.com/
+
+maintained by docker
+
+free to use for individual developers
+
+you can store public private and "official" (python, node etc.) images there
+
+#### private registry
+
+tons of other registries know how to handle docker images being uploaded
+
+### share images
+
+`docker push [image_name]`
+
+Note: for private registries you need to specify the host
+`docker push [host]:[image_name]`
+
+### use images
+
+`docker pull [image_name]`
+
+Note: for private registries you need to specify the host
+`docker pull [host]:[image_name]`
+
+### create a docker hub repository
+
+sign in/up
+
+repositories
+
+create new repository
+
+### push to docker hub
+
+`docker push [username]/[repository_name]`
+
+error:
+
+`An image does not exist locally with the tag: [username]/[repository_name]`
+
+we created it in docker hub but we didn't create it locally
+
+to fix, we need to name the image it the same as the repository on the hub
+
+2 ways: 
+
+rebuild: `docker build -t [username]/[repository_name] .`
+
+renaming/re-tagging: `docker tag [image_id] [username]/[repository_name]`
+
+Note: with the `/`
+
+`docker tag node-app:latest anarkia1985/docker-course`
+
+when retagging, you don't delete the old image, you create a clone
+
+### Authentication
+
+if you are logged in to docker desktop, you can push as you already have a session 
+
+otherwise you'll get an access denied error
+
+to resolve that you need to login to docker hub
+
+`docker login` and enter your credentials
+
+### pull from docker hub
+
+`docker pull [username]/[repository_name]`
+
+Note: you need to be logged in to docker hub to PUSH but not to PULL if you repository is public
+
+By default `docker pull` will pull the latest tag, so if there was a change, it will pull it
+
+you can use `docker run [username]/[repository_name]` to run the current local version, and it will fetch the image 
+if it's not there
+
+`Docker run` will not automatically check for updates
+
+## Quiz 2 Managing Images & Containers
+
+What's the result of these commands?
+
+```bash
+docker build -t myimage .
+docker run --name mycontainer myimage
+docker stop mycontainer
+```
+
+A: an image is created, a container is started, the container is stopped
+both the image and the container are still there
+Both the image and the container are named
+
+Assume that these commands were executed:
+
+```bash
+docker build -t myimage:latest .
+docker run --name mycontainer --rm myimage
+docker stop mycontainer
+```
+
+Which of the below commands will fail?
+
+A: `docker rm mycontainer` as it's already removed when it stopped because of the --rm flag
+
+what is the idea behing tags?
+
+A: tags are used to identify different versions of the same image
+
+## summary
+
+docker is all about images and containers
+
+images are templates/blueprints for containers
+multiple containers can be created from the same image
+
+containers are a thin layer on top of the image
+
+images are either pulled or created from a Dockerfile
+
+images contain multiple layers (instructions in the Dockerfile) to optimize build speed and reusability
+
+Containers are created with `docker run [image_name]` and can be configured with flags
+
+Containers can be listed with `docker ps` and stopped/started with `docker stop/start [container_id]`
+
+Images can be listed with `docker images` and shared with `docker push/pull [image_name]`

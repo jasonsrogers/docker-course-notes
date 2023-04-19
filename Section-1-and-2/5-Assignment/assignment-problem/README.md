@@ -111,6 +111,12 @@ You need to remember to stop the containers before removing them. Otherwise you 
 
 `docker stop node-app python-app`
 
+### restart containers
+
+`docker start -i -a python-app`
+
+`docker start node-app`
+
 ### remove containers by container id
 
 `docker ps -a` to get the container id (-a to get stopped containers as well)
@@ -126,6 +132,12 @@ You need to remember to stop the containers before removing them. Otherwise you 
 `docker images` to get the image id
 
 `docker rmi <image_id> <image_id>`
+
+### pruning
+
+`docker image prune` removes all unused images
+
+`docker image prune -a` removes all images
 
 ## Naming images with names and tags
 
