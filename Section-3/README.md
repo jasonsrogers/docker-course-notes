@@ -152,4 +152,172 @@ await fs.unlink(tempFilePath);
 
 And... it still doesn't work :(
 
+## Named volumes
+
+### Bind mounts
+
+Currently if you change something if your source code, you need to rebuild the image. We only copy over a snapshot when it's created, further changes are not copied
+
+During dev, the would not work
+
+In a similar way as `docker volume` (which is managed by docker and we don't know where things are stored), 
+
+With Bind mounts, we set the path so the container knows where to read/write, it is perfect for persistent and *`editable `*
+
+You can't specify it in the `Dockerfile` as it's not a something global but something dependant on where the container is run
+
+build the image: 
+
+`docker build -t feedback-node:volumes .`
+
+create the container while specifying a volume 
+
+`docker run -d -p 3000:80 --rm --name feedback-app -v feedback:/app/feedback -v "[absolute path to source]:/app" feedback-node:volumes`
+
+Note: `"` are optional in path
+
+Container is not working, how to debug:
+- remove `-rm` to keep the container after is has stopped
+- `docker logs [container name]`
+
+Error is:
+Cannot find module 'express'
+
+Despite running `npm install` in the Docker file.
+
+### Bind mount shortcut
+
+If you don't always want to copy and use the full path, you can use these shortcuts:
+
+macOS / Linux: `-v $(pwd):/app`
+
+Windows: `-v "%cd%":/app`
+
+### Fixing install
+
+We are binding our external folder to the /app inside the container, effectively over writing it
+
+
+These steps are useless as such:
+
+```
+COPY package.json .
+
+RUN npm install
+
+COPY . .
+```
+
+#### how do container manage volumes
+
+container can have volumes mounted to it with `-v`
+
+folders are connected to the host files
+
+volumes => container stores and read files in host
+
+bind mount => host has files that the container reads/copies over
+
+but here we have both, files inside the container (npm, cp) that are then overriden by host files
+
+Docker doesn't override localhost folder with content of inside.
+
+We need to tell docker that there is files that it shouldn't override, we do this with anonymous volumes.
+
+
+`docker run -d -p 3000:80 --rm --name feedback-app -v feedback:/app/feedback -v "[absolute path to source]:/app" -v /app/node_modules feedback-node:volumes`
+
+(anonymous because with don't specify a-name:/app/node_modules)]
+
+We could also specify it inside the Dockerfile 
+
+```
+VOLUME ["/app/node_modules"]
+```
+
+But changes in Dockerfile implies rebuilding the image (depends what you want)
+
+Why does it work: 
+
+Docker evaluates all volume paths, and if there is a clash, it priorities the longest internal path
+
+- /app => one level 
+- /app/node_modules => two levels => priority
+
+This means that /app is bound to our machine except to /app/node_modules, that one will override take precedence over any potential node_modules in the host machine 
+
+#### Node specific refresh
+
+if we want to change server.js by adding `console.log('FEEDBACK')` it doesn't refresh.
+
+server.js is run by node and it's runtime, so need to restart the webserver for the changes to be applied
+
+You can check that the changes have been copied over by connecting to the container interactively and starting a bash
+
+`docker exec -it [CONTAINER ID] bash`
+
+```
+cat server.js
+```
+
+It is not trivial to restart the node inside the container so the simplest is to 
+`docker stop [CONTAINER NAME]`
+`docker start [CONTAINER NAME]`
+
+To avoid this, we actually change the behavior of node to use `nodemon`
+
+```
+"scripts": {
+    "start": "nodemon server.js"
+  },
+
+ "devDependencies": {
+    "nodemon": "X.X.X"
+}```
+
+this adds file change detection on top of node
+
+Change the docker file to
+
+```
+CMD ["npm", "start"]
+```
+
+see: `data-volumes-04-added-nodemon`
+
+`docker stop feedback-app`
+
+`
+```
+docker run -d -p 3000:80 --rm --name feedback-app -v feedback:/app/feedback -v "[ABS PATH]:/app" -v /app/node_modules feedback-node:volumes
+```
+
+Note: windows with WSL2 users need to put files in the Linux file system
+
+### recap
+
+three ways to use volumes `-v`:
+
+- `docker run -v /app/data`
+anonymous volumes
+creates a volume linked to a single container, survives start/stop but not remove
+can't use to share data across containers
+can't use to persist past destruction
+CAN be useful for locking in data inside volume (inside a bind mount for example)
+it outsources data to host which can help improve performance as it need to handle less
+
+- `docker run -v data:/app/data`
+named volume
+can't be created in docker file 
+general container, not tied to specific container 
+persist through start/stop but also removal (need separate command for remove these volumes)
+can share data across containers
+store data
+
+- `docker run -v [abs path]:/app/code`
+bind mount (path as name)
+specify where data is stored 
+general container, not tied to specific container 
+persist through start/stop but also removal (need separate command for remove these volumes)
+deleting data has to be done on the host machine
 
