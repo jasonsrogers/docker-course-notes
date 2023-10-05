@@ -256,3 +256,14 @@ Now lets rebuild (docker file changes) and re run our container with values
 
 Finally, we don't want to copy everything (node_modules) so lets create a `.dockerignore` file
 
+## Live Source Code Updates for the React Container (with Bind Mounts)
+
+We want to start container with live updated => bind mount
+
+`docker run -v [PATH TO CODE]:/app/src --name goals-frontend --rm --network goals-net -p 3000:3000 -it -d goals-react`
+
+And now it auto reloads
+
+Note: if on windows wsl2 , you need to create your files in the linux file system
+
+We also want to improve the the image build by adding .dockerignore
