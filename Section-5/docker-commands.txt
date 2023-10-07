@@ -1,0 +1,72 @@
+------------------
+Create Network
+------------------
+
+docker network create goals-net
+
+------------------
+Run MongoDB Container
+------------------
+
+docker run --name mongodb \
+    -e MONGO_INITDB_ROOT_USERNAME=jason \
+    -e MONGO_INITDB_ROOT_PASSWORD=secret \
+    -v data:/data/db \
+    --rm \
+    -d \
+    --network goals-net \
+    mongo
+
+------------------
+Build Node API image
+------------------
+
+docker build -t goals-node .
+
+------------------
+Run Node API Container
+------------------
+
+docker run --name goals-backend \
+    -e MONGODB_USERNAME=jason
+    -e MONGODB_PASSWORD=secret
+    -v logs:/app/logs \
+    -v [PATH TO CODE FOLDER]/backend:/app \
+    -v /app/node_modules \
+    --rm \
+    --network goals-net \
+    -p 80:80 \
+    -d \
+    goals-node
+
+------------------
+Build Front end image
+------------------
+
+docker build -t goals-react .
+
+------------------
+Run Front end react
+------------------
+
+docker run 
+    -v [PATH TO CODE]:/app/src \
+    --name goals-frontend \
+    --rm \
+    --network goals-net \
+    -p 3000:3000 \
+    -it \
+    -d \
+    goals-react
+
+---
+Stop
+---
+
+docker stop mongodb goals-frontend goals-backend
+
+---
+remove images
+---
+
+docker rmi mongo goals-react goals-node

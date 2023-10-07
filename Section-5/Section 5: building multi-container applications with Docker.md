@@ -267,3 +267,8 @@ And now it auto reloads
 Note: if on windows wsl2 , you need to create your files in the linux file system
 
 We also want to improve the the image build by adding .dockerignore
+
+## Room for improvement
+
+- Long commands that you have to re input every time you start
+- dev only setup (not optimized for prod)
