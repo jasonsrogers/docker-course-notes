@@ -58,4 +58,84 @@ And that is it
 
 ## adding a PHP container
 
+We need a custom image base of php official images: 
+
+```
+FROM php:7.4-fpm-alpine
+
+WORKDIR /var/www/html
+
+RUN docker-php-ext-install pdo pdo_mysql
+```
+
+We need custom because we want to add `pdo` and `pdo_mysql`
+
+We don't have a `CMD`, if we don't specify one it will default to the `CMD` of the base image
+
+Defining the php service in yaml
+
+```
+  php: 
+    build:
+      context: ./dockerfiles
+      dockerfile: php.dockerfile
+```
+
+We need to use the advanced build option to specify context and the name of the dockerfile
+
+We also need a bindmount to make the source code available inside of the container
+
+```
+volumes:
+      - ./src:/var/www/html:delegated
+```
+
+Note: `:delegated` will delay passing the changes to the container and instead will copy them in batches, this improves performance (just like a debounce)
+
+```
+ports:
+      - "3000:9000"
+```
+
+nginx sends to 3000, php exposes 9000 
+
+so we should map the ports as above.
+
+BUT, since it's container to container communication in the same network, we don't need to open ports, we can just adjust nginx.conf to 9000
+
+## mysql container
+
+We're going to use the official image
+
+```
+mysql:
+    image: "mysql:5.7"
+    env_file:
+      - ./env/mysql.env
+```
+
+And we'll specify the defaults in an env file
+
+## Composer container
+
+custom image because we need to set the entry point
+
+```
+FROM composer:latest
+
+WORKDIR /var/www/html
+
+ENTRYPOINT [ "composer", "--ignore-plarform-reqs" ]
+```
+
+add it to compose
+
+```
+composer:
+    build:
+      context: ./dockerfiles
+      dockerfile: composer.dockerfile
+```
+
+we also need a bindmount to our source code so that it can create code (like npm init did )
 
