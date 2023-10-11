@@ -139,3 +139,77 @@ composer:
 
 we also need a bindmount to our source code so that it can create code (like npm init did )
 
+## Creating a laravel app via the composer utility container
+
+via composer create project 
+
+`composer create-project --prefer-dist laravel/laravel .`
+
+using out container would be: 
+
+`docker compose run --rm composer create-project --prefer-dist laravel/laravel .`
+
+## Launching only some docker compose services
+
+First in `src` we need to set some values in `.env`
+
+we need to db values to match in src and in mysqlenv
+
+```
+DB_DATABASE=homestead
+DB_USERNAME=homestead
+DB_PASSWORD=secret
+```
+
+but also adjust the url: 
+
+```
+DB_HOST=mysql
+```
+
+we use the name of the service as it will be managed by docker compose
+
+Looking out our setup, we need nginx to know about our php files, so we need to expose them by updating `services -> server -> volumes`
+
+Now to run it:
+
+we want to run `server`, `php` and `mysql` but not the rest
+
+so we are going to use `docker compose up` but specifying what we want to run
+
+`docker compose up -d server php mysql`
+
+If we check, php and mysql started but not server
+
+` - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro` is wrong 
+
+it should be
+
+ `- ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro`
+
+ Note: M1/M2 need to add `platform: linux/x86_64` in the mysql image
+
+ `docker compose up -d server php mysql`
+
+ this allows us to only run server, php and mysql
+
+ But it's a bit annoying to type out
+
+ We can leverage `depends_on` in server to make it so that `php` and `mysql` always start when server start
+
+ now out command is just: 
+ 
+ `docker compose up -d server`
+ 
+ Currently our docker compose only looks if the image exists, so if we make changes to code or docker file, it will not pick up on it automatically.
+
+ To fix this, we can add `--build` it will force docker to go through the dockerfiles and recreate if something changed, if nothing changed, it doesn't build
+ 
+ `docker compose up -d --build server`
+ 
+Now if we change src, it will be reflected
+
+for example: src/resources/views/welcome.blade.php
+
+## adding more utilities
+
