@@ -172,16 +172,16 @@ Lets go with the second option
 - build the image
   `docker build -t node-deploy-example .`
 - rename the image to match the repo
-  `docker tag node-deploy-example anarkia1985/node-deploy-example-1`
+  `docker tag node-deploy-example {name}/node-deploy-example-1`
 - push the image
-  `docker push anarkia1985/node-deploy-example-1`
+  `docker push {name}/node-deploy-example-1`
   Note: you need to be logged in (`docker login`)
 
 Now we just need to pull it and run
 
 ## Running & publiishing the app (on EC2)
 
-`docker run anarkia1985/node-deploy-example-1`
+`docker run {name}/node-deploy-example-1`
 
 M1/M2 Note:
 
@@ -201,19 +201,19 @@ Rebuild the image using `--platform`
 
 tag it again !!!
 
-`docker tag node-deploy-example-1 anarkia1985/node-deploy-example-1`
+`docker tag node-deploy-example-1 {name}/node-deploy-example-1`
 
 push it
 
-`docker push anarkia1985/node-deploy-example-1`
+`docker push {name}/node-deploy-example-1`
 
 On the EC2, remove old image
 
-`docker rmi anarkia1985/node-deploy-example-1`
+`docker rmi {name}/node-deploy-example-1`
 
 And run again:
 
-`docker run -d --rm -p 80:80 anarkia1985/node-deploy-example-1`
+`docker run -d --rm -p 80:80 {name}/node-deploy-example-1`
 
 To test that it's working, go to the AWS instance
 
@@ -256,11 +256,11 @@ After a change, how do we manage updating the running container
 Rebuild
 `docker build --platform linux/amd64 -t node-deploy-example-1 .`
 
-`docker tag node-deploy-example-1 anarkia1985/node-deploy-example-1`
+`docker tag node-deploy-example-1 {name}/node-deploy-example-1`
 
 Push
 
-`docker push anarkia1985/node-deploy-example-1`
+`docker push {name}/node-deploy-example-1`
 
 Use:
 
@@ -268,15 +268,15 @@ Use:
 
 but if we use:
 
-`docker run -d --rm -p 80:80 anarkia1985/node-deploy-example-1`
+`docker run -d --rm -p 80:80 {name}/node-deploy-example-1`
 
 we won't see the changes because it used the localy cached image. Therefore first pull the latest
 
-`docker pull anarkia1985/node-deploy-example-1`
+`docker pull {name}/node-deploy-example-1`
 
 then run
 
-`docker run -d --rm -p 80:80 anarkia1985/node-deploy-example-1`
+`docker run -d --rm -p 80:80 {name}/node-deploy-example-1`
 
 ## Disadvantages of our current approach
 
@@ -357,6 +357,7 @@ ECS has 4 categories/layers
 - container definition
 
 ### Container definition:
+
 We are basically defining how docker run should be executed:
 
 - name
@@ -365,6 +366,7 @@ We are basically defining how docker run should be executed:
   ...
 
 There is also more advanced commande like
+
 - environment, where we can override command/entry point, environement var
 - network settings
 - healthcheck
@@ -378,14 +380,16 @@ Here we use FARGATE which launches it in serveless mode (this could also be set 
 
 ### Service
 
-service controls how the taks & server is executed. here we can use a load balancer. 
+service controls how the taks & server is executed. here we can use a load balancer.
+
 ### Cluster
 
 Overall network were our service runs
 If we had a multi container app, we could group multiple container together
 
-Note: 
+Note:
 In current state of AWS ECS, these section are grouped:
+
 - cluster => service
 - task definition => container
 
@@ -394,7 +398,105 @@ You'll also need the task setup to define it in the server
 Once created, you can go to `cluster -> service -> tasks` to find the instance, click on it's id, and you should find the public address you can reach
 
 Note: the service security group needs to allow tcp:80, if you don't create a new security group you'll have to either recreate a service or modify the group
+
 ## More on AWS
 
+Free youtube tutorials:
 
+https://academind.com/tutorials/aws-the-basics
 
+Fargate:
+
+it will spin up a server only when needed and it will be managed for us
+
+## Updating managed container
+
+Lets make another change to welcome.html
+
+Then build:
+
+`docker build --platform linux/amd64 -t node-deploy-example-1 .`
+
+Tag it
+
+`docker tag node-deploy-example-1 {name}/node-deploy-example-1`
+
+Push it
+
+`docker push {name}/node-deploy-example-1`
+
+Now, how do we update the image in aws. It doesn't do it automatically (would be kind of bad).
+
+Task deinition => select => create new revision
+
+Leave all as the same as aws will pull down the latest image
+
+Create
+
+Then go to service and update the service.
+
+## clean up
+
+As AWS bills for the various elements, better stop and delete them.
+
+clusters => my cluster => select service => delete
+
+If you get:
+
+`The service cannot be stopped while it is scaled above 0.`
+
+you either force delete or go and update the desired count of the service to 0.
+
+Then the Cluster
+
+## Preparing for multi container app
+
+Here we going to deploy 2 containers:
+
+- backend
+- mongodb
+
+We have docker-compose for running definitions of containers on our machine. But it doesn't allow us to set thiungs that are important like capacity, deploy across machines etc
+
+Different providers might want different extra information to run the containers etc.
+
+Docker compose is greate for running and managing containers on one/same machine.
+
+So lets build the images we're going to use starting with the backend
+
+First, we have the fix the urls!
+We've been relying on the service names to reference other cotnainers in the same docker network. `mongodb://${process.env.MONGODB_USERNAME}:${process.env.MONGODB_PASSWORD}@mongodb:27017/course-goals?authSource=admin`,
+
+But on the cloud the docker network won't work. Localy our network is on the same machine so it's easy to find the matching containers. But on the cloud, there is no guarantee where our 2 containers are going to run.
+
+If we add both containers to the same task (which we are going to do), then they are guaranteed to be on the same machine, but ecs will not create a docker network. However, this does allow us to use localhost to access other containers.
+
+To handle different urls in different builds, we can leverage env variables
+
+`MONGODB_URL`
+
+`mongodb://${process.env.MONGODB_USERNAME}:${process.env.MONGODB_PASSWORD}@${process.env.MONGODB_URL}:27017/course-goals?authSource=admin`,
+
+add it to your local env/backend.env
+
+`MONGODB_URL=mongodb`
+
+And ECS, we pass in a different value.
+
+Now we can build
+
+`docker build -t goals-node-04  --platform linux/amd64 ./backend/`
+
+`docker tag goals-node-04 {name}/goals-node-04`
+
+`docker push goals-node-04
+
+Create a new repo in docker hub (note: it is possible to hust push without create in the repo)
+
+```
+1. docker buildx build --platform linux/amd64 -t {name}/goals-node ./backend
+
+(buildx & --platform is for Apple M1 chip)
+
+2. docker push {name}/goals-node
+```
