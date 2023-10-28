@@ -500,3 +500,403 @@ Create a new repo in docker hub (note: it is possible to hust push without creat
 
 2. docker push {name}/goals-node
 ```
+
+## Configuring the nodejs back end container
+
+Now we can create a new cluster/service/task to run our backend service
+
+Create Cluster
+
+Create task definition
+
+Launch type: fargate
+
+Task role: ecsTaskExecutionRole
+
+Create a container using image anarkia1985/goals-node-04
+
+Expose port 80
+
+Docker configuration:
+We want to override the default command as we don't want to run nodemon and instead we want to just run `node app.js`
+command: `node,app.js`
+
+Environment variables:
+Create the same vars are in backend.env and set values
+Note: MONGODB_URL needs to be `localhost`
+
+Leave the rest (as all other configs in docker compose where for local purposes)
+
+Now lets add mongodb
+
+## Deploying a second container & a load balancer
+
+Add another container
+
+Name `mongodb` or whatever you want
+
+Image: `mongo`
+
+Add a port 27017
+
+add the environment vars of mongo.env
+
+We need a storage, but we'll come back on how to persist it
+
+Now we can launch a service
+
+Clusters => my cluster => create (service)
+
+keep as fargate
+
+Select newly created task
+
+name it
+
+Under networking select the vc of the cluster
+
+Under subnet add both subnets
+
+Add/create security group that allows 80
+
+and public ip
+
+Add a load balance `application load balancer`
+
+Create a new one, name it, ensure it uses port 80
+
+create target group (just name it)
+
+Hit create
+
+Eventually you'll see
+
+cluster shows service
+
+service shows task
+
+task shows container
+
+## Using a Load Balancer for a Stable Domain
+
+Each time we update our service, it changes IP which is annoying, Load Balancer can help with this
+
+In EC2 -> loadbalancer you can see the LB we created
+
+In the LB details there is a DNS name that looks like an url (DNS name)
+
+If we copy it, you can access the service without neededing to know the ip. This allows us to have a persistent url no matter what the actual ip of the service becomes
+
+Note: when creating the target group of the load balancer, we left the Path as `/` but our app doesn't respond to just `/` so it will always return `404` which is unhealthy. We need to change the path to an existing end point `/goals`
+
+## Using EFS Volumes with ECS
+
+Currently if we deploy anything new (update container code), everything wil work, but the previous data will be destroyed along with the container.
+
+This is because we haven't defined any volume to persist data past the container destruction
+
+Lets go to task definitions and create a new revision from the latest revision available
+
+Keep the same config
+
+In `Storage` select `add volume`
+
+Name it whatever you want (it doesn't have to follow the naming you localy due to file structure)
+
+Then chose `Volume type` => `EFS` (elastic file system)
+
+We currently don't have a file system so lets go to the EFS console
+
+Chose a name, and select the same VPC as your service and containers
+
+Then `Customize`
+
+Click next, then in `Network Access`
+
+Then in a separate tab, go to ec2 security group and create a new security group
+
+Check that VPC is the same
+
+Add an inboud rule
+
+NFS
+
+Custom
+
+then in source select the security group that is managing the container
+
+This will allow our containers to talk to the NFS created in the NFS security group
+
+Then in the EFS network, replace the default SG by the new one we just created
+
+Back in the Task definition revision, use the files system id we just created
+
+Then select Add Mount point
+
+Container => mongodb
+Source Volume => your EFS name
+Container Path => /data/db
+
+Now Create the new revision
+
+Go to the service and select `Update Service`
+
+Select the revision (and force new deployment if needed)
+
+Then click update and wait for it to redeploy
+
+## Databases & containers: An important consideration
+
+A note about databases
+
+You can absolutly manage your own database containers but
+
+- scaling & managing availability can be challenging
+- performance (also traffic spikes) could be bad
+- taking care about backups and security can be challenging
+
+Consider using a managed database service (eg AWS RDS, MongoDB Atlas...)
+
+## Moving to MongoDB Atlas
+
+Go to mongo db atlas an chose the free tier
+
+Select `Create cluster`
+
+`FREE` tiers
+
+`aws`
+
+chose a name and a region (close to your aws cluster)
+
+Fill in other user related questions
+
+then create.
+
+Once it's ready, chose `connect` for details on how to access it
+
+Copy the sample url string into your app
+
+Now we face a dilema do we want to use our cloud db for dev and prod or just prod
+
+if we don't use it for dev, then we have to ensure that we are using the same versions of mongo db locally and remotely
+
+if we use both in the cloud, we would have to find a way to manage dev data from prod data, we would also have to always be connected to it
+
+We're going to go with the approach of always keeping it in sync by using cloud for everything
+
+let's update the url
+
+update the url (we are adding a new env param MONGODB_NAME for switching db in the cloud)
+
+Add MONGODB_NAME to docker file
+
+Update the credentials in mongo.env and backend.env
+
+Now lets update our docker compose, as we are going to be using our cloud, we no longer need the mongodb container in the yaml
+
+we also need to update the url 
+
+`MONGODB_URL=oalsnode04cluster.fnt8edn.mongodb.net`
+
+You'll also need to configure in the cloud: 
+- network access with your ip
+- database access, create a new user with read/write access
+
+Now we should be able to do `docker up` and connect to mongo db
+
+## Using MongoDB Atlas in Production
+
+To get it working in prod is straight forwards
+
+- rebuild the image so that it has the new parameter (technically could be skipped if we use the same db)
+```
+docker build -t anarkia1985/goals-node-04  --platform linux/amd64 ./backend/
+
+docker push anarkia1985/goals-node-04
+```
+- remove mongo db from task definition
+- remove the volume and volume related resources
+- update the env variables to point to mongo db atlas
+
+We can use the same load balancing url (as it hasn't changed)
+
+Now lets look at deploying the front end too
+
+## Understanding a Common problem
+
+Typically, web apps have a build step as we can't run them in the same way as locally 
+
+Optimizing the scripts that needs to be executed AFTER dev but BEFORE deployment (typically js app that run in the browser)
+
+Dev setup !== production setup 
+
+Locally we work with jsx/ts/frameworks/hot reload/dev server etc. It's vebrose so that developers can follow/understand what is happening.
+
+Locally we run scripts that `npm start` that create a locally creates a environment that is freindly for development. The drawback is that this is serving dozens or hundreds of files to the user(s) which would be ineffecient (as the users don't need/care about individual files, granularity etc)
+
+For production, react has a build step that will do build compilation and optimization so that it's servered properly.
+The Build script will give us what we need for production, but not a server to run it in
+
+## Creating a "build-only" container
+
+For some projects like web apps, there is a build set that compiles the code for deployments, in our cases 
+
+`"build": "react-scripts build"`
+
+Lets see how docker can be utilized to create a image ready for deployment.
+
+In prod we won't need all the features of node, we just need enough to build the app and run a prod server
+
+So we'll create a new Dockerfile (let's call it `Dockerfile.prod` to differentiate)
+
+```
+FROM node:14-alpine
+
+WORKDIR /app
+
+COPY package.json .
+
+RUN npm install
+
+COPY . .
+
+EXPOSE 3000
+
+CMD [ "npm", "run", "build" ]
+```
+
+This will build the app, but not the server, so we'll use multi-stage builds
+
+## Introducing multi-stage builds
+
+One dockerfile, multiple build/setup steps ("stages")
+
+Stages can copy results (created files and folders) from each other
+
+You can either ubild the complete image or select individual stages
+
+Instead of `CMD` we use `RUN` and then we can continue with more steps
+
+`CMD [ "npm", "run", "build" ]` becomes
+
+`RUN npm run build`
+
+But we only need node for install and build, not to server
+
+So we'll want to switch to a different base image
+
+Note: Every FROM instruction creates a new stage in your dockerfile. even if you use the same image as in the previous step
+
+Lets use nginx as the next stage
+
+`FROM nginx:stable-alpine`
+
+We'll want to reuse the result of the first stage in the second stage, so to be able to reference it, we need to name the first stage
+
+`FROM node:14-alpine as build`
+
+This way we can copy and reuse it 
+
+`COPY --from=build /app/build /usr/share/nginx/html`
+
+export the port 
+
+`EXPOSE 80`
+
+launch nginx ourself
+
+`CMD [ "nginx", "-g", "daemon off;" ]`
+
+Now lets see how we can deploy this
+
+## BUilding a Multi-stage image
+
+First, we need to make some adjustments
+
+Using `localhost` will no longer work. In AWS ECS `localhost` works if the code is run on the server directly, however for a web app, we'll be server the compiled code the the client browser were it will be executed.
+
+We are planning on serving the app as part of the same ECS server so we can reuse the url 
+
+`http://localhost/goals` becomes `/goals` because by default, the browser will send this request the the same url as the sever
+
+If we were serving from a different server, we would have to pass in the backend server url through env
+
+Create a new repo on docker hub `goals-react-04`
+
+Build the image
+
+`docker build -t anarkia1985/goals-react-04 -f ./frontend/Dockerfile.prod ./frontend`
+
+Note: we need to use -f to specify the file name, and for that we have to sepcify the relative file path AND still the folder at the end of the command. at the end, we specify the context, with -f sets the name of the file
+
+Then push it 
+
+`docker push anarkia1985/goals-react-04`
+
+## Deploying a standalone frontend app
+
+First lets go back to our task definitions to add a new container
+
+New revision 
+
+Add container
+
+name it and enter your dockerhub iamge `anarkia1985/goals-react-04`
+
+Lets also add a `startup dependency ordering` to ensure our back end has `success`fully started
+
+However we have a problem, now our Backend and our Frontend use port 80, which is not possible on the same server
+
+We could: 
+
+- merge front and back end as they are both node apps 
+- change the port of the backend
+
+Or we can split the frontend and backend in 2 separate tasks
+
+Lets use the same config 
+- fargate
+- min ram/cpu
+- container 
+
+We'll also have to rebuild our image as we'll have to pass in the urls
+
+`const backendUrl = process.env.NODE_ENV === "development" ? "http://localhost" : 'urlFromLoadBalancer;'`
+
+Get the url for the BE loadbalancer 
+Create a new load balancer for FE while your there (with target group set to ip)
+
+Now rebuild, push and we can use it
+
+Once pusehd we can create a new service `GoalsReact04Service` 
+
+fargate
+
+1 task 
+
+Rolling updates 
+
+Select the subnets, security group and load balancer
+
+## Understanding Multi-Stage Build targets
+
+Additional note on how to run only sime sateges
+
+`docker build --target build -t anarkia1985/goals-react-04 -f ./frontend/Dockerfile.prod ./frontend`
+
+if we wanted to just build the code but not run the nginx part
+
+## Beyond AWS
+
+AWS was just the example provider in this section 
+
+Other providers will provider similar solutions
+
+
+
+
+
+
+
+
