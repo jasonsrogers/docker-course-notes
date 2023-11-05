@@ -84,3 +84,47 @@ If you have docker you can try
 https://kubernetes.io/docs/tasks/tools/#install-on-windows-using-chocolatey-or-scoop
 
 ## Uderstanding Kubernetes Objects (resources)
+
+Kubernetes works with objects
+
+- pods
+- deployments
+- services
+- volumes 
+- ...
+
+THe idea behind these objects is that you can create the object, and k8s will do things based on the instructions encoded in it (it's code at the end of the day).
+
+Objects can be created in 2 ways:
+- imperative
+- declarative
+
+A couple of key objects that we will be working with:
+
+### pods
+
+the smallest unit in k8s, a container or a group of containers that are tightly coupled together. They share the same resources and are deployed together. They are the smallest unit that k8s can manage. the smallest "unit" kubernetes interacts with. The most common use case is "one container per Pod". 
+
+Pods contain shared resources (eg columes) for all pod cotnainers. They manage the volumes (more on that later).
+
+Pods are part of the cluster and can communicate with each other. They are not isolated from each other. They have a cluster-internal IP address that can be used the send requests. If there is multiple containers in a pod, they can talk to each other via localhost. This concept is similar to ECS task definition.
+
+Pods are designed to be ephemeral: kubernetes will start, stop and replace them as needed. They are not designed to be long lived. If you need to store data, you need to use volumes.
+
+POds can be created manaually but it's not recommended. It's better for pods to be managed for you,  you need a "controller" (eg deployment) to manage the pods.
+
+## the "Deployment" object (resource)
+
+You typically don't create the pods on your own but you create a deployment object which for which you'll give instructions on how many pods to create, what image to use etc. The deployment object will then create the pods for you.
+
+The deployment object is able to create one or multiple pods.
+
+You set a desired state, then k8s will make sure that the desired state is met. Define which pods and containers to run and the nubmer of instances.
+
+deployements can be paused, deleted and rolledback.
+
+Deployments can be scaled dynamically (and automatically based on watchers). you can change the number of desired pods as needed.
+
+Deployments manage a pod for you, you can also create multiple deployments.
+
+you therefore typically don't directly control pods, instead you use deployments to set up the desired end state.
