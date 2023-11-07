@@ -90,12 +90,13 @@ Kubernetes works with objects
 - pods
 - deployments
 - services
-- volumes 
+- volumes
 - ...
 
 THe idea behind these objects is that you can create the object, and k8s will do things based on the instructions encoded in it (it's code at the end of the day).
 
 Objects can be created in 2 ways:
+
 - imperative
 - declarative
 
@@ -103,7 +104,7 @@ A couple of key objects that we will be working with:
 
 ### pods
 
-the smallest unit in k8s, a container or a group of containers that are tightly coupled together. They share the same resources and are deployed together. They are the smallest unit that k8s can manage. the smallest "unit" kubernetes interacts with. The most common use case is "one container per Pod". 
+the smallest unit in k8s, a container or a group of containers that are tightly coupled together. They share the same resources and are deployed together. They are the smallest unit that k8s can manage. the smallest "unit" kubernetes interacts with. The most common use case is "one container per Pod".
 
 Pods contain shared resources (eg columes) for all pod cotnainers. They manage the volumes (more on that later).
 
@@ -111,7 +112,7 @@ Pods are part of the cluster and can communicate with each other. They are not i
 
 Pods are designed to be ephemeral: kubernetes will start, stop and replace them as needed. They are not designed to be long lived. If you need to store data, you need to use volumes.
 
-POds can be created manaually but it's not recommended. It's better for pods to be managed for you,  you need a "controller" (eg deployment) to manage the pods.
+POds can be created manaually but it's not recommended. It's better for pods to be managed for you, you need a "controller" (eg deployment) to manage the pods.
 
 ## the "Deployment" object (resource)
 
@@ -179,7 +180,7 @@ to get more info about the deployment we can use `kubectl get pods`
 
 ```
 NAME                         READY   STATUS             RESTARTS   AGE
-first-app-6f58f94cf5-xrpmb   0/1     ImagePullBackOff   0 
+first-app-6f58f94cf5-xrpmb   0/1     ImagePullBackOff   0
 ```
 
 Here we see all pods create and the status of the pods. We can see that the pod is not ready and the status is `ImagePullBackOff`. This means that the image could not be pulled from the registry. We need to tell kubernetes where to find the image.
@@ -206,7 +207,7 @@ Now we can see that the pod is running
 
 `kubectl get deployments`
 
-```                           
+```
 NAME        READY   UP-TO-DATE   AVAILABLE   AGE
 first-app   1/1     1            1           15s
 ```
@@ -216,6 +217,7 @@ Note: you might need to wait a bit for the pod to be ready.
 Before we see how we can reach it, lets check with `miniube dashboard` to see what is running.
 
 In there we can see our cluster:
+
 - deployments
 - pods
 - replica sets
@@ -257,6 +259,7 @@ If we look at the docs of `kubectl create` we can see that there is an option to
 `--port=8080` is the port of the pod that we want to expose (as defined in the app/dockerfile)
 
 There are several types of services:
+
 - ClusterIP (default) - only accessible from within the cluster but the IP is static
 - NodePort - exposes the service on each node's IP at a static port (the same port on each node)
 - LoadBalancer - exposes the service externally using a load balancer that needs to exist in the infrastructure our cluster runs, then it will generate a unique address + it will also evenly distribute the load across all pods in the service.
@@ -295,3 +298,219 @@ And tada, we can see our app running.
 
 ## Restarting containers
 
+In our app, we have an end point that automically crashed the app
+
+```
+app.get('/error', (req, res) => {
+  process.exit(1);
+});
+```
+
+The app craches, but if you check the main app page it's still running.
+
+if we check the `kubectl get pods` we see the status is error, we see that the restart has increased
+
+```
+NAME                        READY   STATUS    RESTARTS      AGE
+first-app-986ff4b56-58p4q   1/1     Running   3 (92s ago)   23h
+```
+
+Thanks to the monitoring of the kubelet, it will restart the pod if it crashes. This is a default behaviour of the kubelet.
+
+We can check the events log of the pod and we see that the container was recreated after crashing.
+
+## scaling in action
+
+Scaling is a core feature of kubernetes. It's easy to scale up and down manually from the kubectl cli.
+
+`kubectl scale deployment/first-app --replicas=3`
+
+This will create 3 pods for us.
+
+Note: replica just means the number of instances we want to run.
+
+Now if we run `kubectl get pods` we see 3 pods running
+
+```
+NAME                        READY   STATUS    RESTARTS        AGE
+first-app-986ff4b56-58p4q   1/1     Running   4 (4m27s ago)   23h
+first-app-986ff4b56-tfjz9   1/1     Running   0               3s
+first-app-986ff4b56-z8hbd   1/1     Running   0               3s
+```
+
+because minikube has a load balancer, traffic will be distributed across the pods.
+
+if we visit /error a couple of times we wills till be able to see our site as the load balancer will send the request to a different pod.
+
+```
+NAME                        READY   STATUS             RESTARTS      AGE
+first-app-986ff4b56-58p4q   0/1     CrashLoopBackOff   4 (15s ago)   23h
+first-app-986ff4b56-tfjz9   1/1     Running            0             2m13s
+first-app-986ff4b56-z8hbd   0/1     Error              1 (17s ago)   2m13s
+```
+
+we can see that 2 crashed and 1 is running. kubernetes will eventually restart the other 2 pods.
+
+to scale back down, set the replica to 1 `kubectl scale deployment/first-app --replicas=1` and kubernetes will eventually terminate the other pods.
+
+## Updating a deployment
+
+Now lets take a look at how we can update a deployment after making code changes.
+
+Once the image is rebuilt and pushed
+
+`docker build -t anarkia1985/kub-first-app .`
+
+`docker push anarkia1985/kub-first-app`
+
+we can update the deployment with the new image
+
+- check the deployment name `kubectl get deployments`
+
+```
+NAME        READY   UP-TO-DATE   AVAILABLE   AGE
+first-app   1/1     1            1           23h
+```
+
+- update the deployment
+
+`kubectl set image deployment/first-app kub-first-app=anarkia1985/kub-first-app`
+
+`kubectl set image deployment/[DEPLOYMENT_NAME] [OLD_IMAGE_NAME_LOCAL]=[NEW_IMAGE_NAME]`
+
+- check the deployment
+
+`kubectl get deployments`
+
+```
+NAME        READY   UP-TO-DATE   AVAILABLE   AGE
+first-app   1/1     1            1           23h
+```
+
+There is no difference, and the app hasn't changed. This is because the deployment is still running the old image. We need to tell the deployment to use the new image by updating the tags. It's a good pratice also to version the images in docker.
+
+`docker build -t anarkia1985/kub-first-app:2 .`
+
+`docker push anarkia1985/kub-first-app:2`
+
+`kubectl set image deployment/first-app kub-first-app=anarkia1985/kub-first-app:2`
+
+now we get image updated confirmation
+
+```
+deployment.apps/first-app image updated
+```
+
+To check the rollout status we can use 
+
+`kubectl rollout status deployment/first-app`
+
+```
+deployment "first-app" successfully rolled out`
+```
+
+Note: updating message
+
+```
+Waiting for deployment "first-app" rollout to finish: 1 old replicas are pending termination...
+```
+
+Now we can see that the app has been updated.
+
+On the dashboard pods details we can see the events and container iamge have been updated.
+
+## Deployments: rollout, rollback and history
+
+Now lets try something that fails. 
+
+Let set the image to a non existing image
+
+`kubectl set image deployment/first-app kub-first-app=anarkia1985/kub-first-app:3333`
+
+if you check the rollout status
+
+`kubectl rollout status deployment/first-app`
+
+```
+Waiting for deployment "first-app" rollout to finish: 1 old replicas are pending termination...
+```
+
+and it doesn't finish. It's stuck in a pending state. This is because the image doesn't exist.
+
+If we check the dashboard we see that the old pods is still running because the new one is pending. and it has issues with error pulling the image.
+
+So we need to rollback to the previous version.
+
+Lets check the stuck pods
+
+`kubectl get pods`
+
+```
+NAME                         READY   STATUS             RESTARTS   AGE
+first-app-54d6779784-ch2lt   1/1     Running            0          7m23s
+first-app-6b9f58fd44-wsb59   0/1     ImagePullBackOff   0          3m19s
+```
+
+To rollback we can use
+
+`kubectl rollout undo deployment/first-app`
+
+Now our pods are back to normal
+
+```
+NAME                         READY   STATUS    RESTARTS   AGE
+first-app-54d6779784-ch2lt   1/1     Running   0          8m17s
+```
+
+and our rollout status is back to normal
+
+`kubectl rollout status deployment/first-app`
+
+```
+deployment "first-app" successfully rolled out
+```
+
+If we wanted to go back further we could look at the rollout history
+
+`kubectl rollout history deployment/first-app`
+
+```
+REVISION  CHANGE-CAUSE
+1         <none>
+3         <none>
+4         <none>
+```
+
+and check the details of a specific revision
+
+`kubectl rollout history deployment/first-app --revision=3`
+
+```
+deployment.apps/first-app with revision #3
+Pod Template:
+  Labels:       app=first-app
+        pod-template-hash=6b9f58fd44
+  Containers:
+   kub-first-app:
+    Image:      anarkia1985/kub-first-app:3333
+    Port:       <none>
+    Host Port:  <none>
+    Environment:        <none>
+    Mounts:     <none>
+```
+
+let see if we can rollback to revision 1 
+
+`kubectl rollout undo deployment/first-app --to-revision=1`
+
+before switching, lets delete out service
+
+`kubectl delete service first-app` 
+
+and the deployment
+
+`kubectl delete deployment first-app`
+
+to ensure all the resources are deleted
+
+## The imperative approach Vs the declarative approach
