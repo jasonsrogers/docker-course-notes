@@ -293,4 +293,5 @@ We can use `minikube service first-app` to open the service in the browser.
 
 And tada, we can see our app running.
 
+## Restarting containers
 
