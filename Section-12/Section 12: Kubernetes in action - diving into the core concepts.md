@@ -401,7 +401,7 @@ now we get image updated confirmation
 deployment.apps/first-app image updated
 ```
 
-To check the rollout status we can use 
+To check the rollout status we can use
 
 `kubectl rollout status deployment/first-app`
 
@@ -421,7 +421,7 @@ On the dashboard pods details we can see the events and container iamge have bee
 
 ## Deployments: rollout, rollback and history
 
-Now lets try something that fails. 
+Now lets try something that fails.
 
 Let set the image to a non existing image
 
@@ -499,13 +499,13 @@ Pod Template:
     Mounts:     <none>
 ```
 
-let see if we can rollback to revision 1 
+let see if we can rollback to revision 1
 
 `kubectl rollout undo deployment/first-app --to-revision=1`
 
 before switching, lets delete out service
 
-`kubectl delete service first-app` 
+`kubectl delete service first-app`
 
 and the deployment
 
@@ -514,3 +514,374 @@ and the deployment
 to ensure all the resources are deleted
 
 ## The imperative approach Vs the declarative approach
+
+Drawback of the imperative approach:
+
+- learning all the commands
+- have to repeat the commands a lot
+- ...
+
+this is similar to docker vs docker-compose
+
+Kubernetes solves this too by allowing resource definitions files in a yaml.
+
+imperative:
+`kubectl create deployment ...`
+individual commands are executed to trigger certain kubernetes actions
+comparable to using docker run only
+
+Declarative:
+`kubectl apply -f config.yaml`
+a config file is defined and applied to change the state of the cluster
+comparable to using docker-compose with compose files
+
+## creating a deployment configuration file (declarative approach.)
+
+First lets check there is no ongoing deployments
+
+`kubectl get deployments`
+`kubectl get pods`
+`kubectl get services`
+
+```
+No resources found in default namespace.
+```
+
+Lets create a `deployment.yaml` file
+
+Note name of the file is not important, but it's a good pratice to name it after the resource it's creating. it just has to end with .yaml
+
+```
+apiVersion: apps/v1
+```
+
+Note: to find out the current api version, search on google for something like `kubernetes deployment yaml` to find examples.
+
+let kubernetes know what type of resource we are creating
+
+```
+kind: Deployment
+```
+
+Then some metadata of the object we are creating
+
+like the name when we did it imperatively
+
+`kubectl create deployment first-app...`
+
+```
+metadata:
+  name: second-app-deployment
+```
+
+Then the spec of the deployment
+
+## adding pod and container specs
+
+in `spec` we can define:
+
+number of instances (replicas)
+
+```
+spec:
+  replicas: 3
+```
+
+Then the template for the pod (--image=)
+
+We define the metadata of the pod and it's label
+
+```
+ template:
+    metadata:
+      labels:
+        app: second-app
+```
+
+Note: key/value of labels can be whatever we want.
+
+Note: we don't need to specify a `kind` of the spec template of a deployment is always a pod.
+
+Now we need to define a spec for the pod
+
+```
+spec:
+  containers:
+    - name: second-node-app
+      image: anarkia1985/kub-first-app
+    - name: second-react-app
+      image: anarkia1985/kub-react-app
+```
+
+Note `-name: ...` as we a specifying a list of container
+`image: ...` is the image of the container we want to use so it doesn't have a `-` as it's the same object as `name`
+
+Now to launch the deployment we can use `kubectl apply -f deployment.yaml`
+
+But you get an error `missing required field "selector"
+
+This is a key concept that we need to understand.
+
+## working with labels & selectors
+
+At the deployement spec level
+
+```
+  selector:
+    matchLabels:
+      app: second-app
+```
+
+we define a selector to match the labels of the pods we want to manage.
+
+This is why we defined labels on the pod template
+
+Kubernetes is ever dynamic. Although it might be obvious from the yaml which pods the deployment will create, a deployment is not limited to the pods it creates. It can also manage pods that are created by other deployments. So we need to tell the deployment which pods it should manage.
+
+You can have one of more labels on a pod and you can have one or more labels on a deployment.
+
+Selectors work on the basis of matching everything that is defined in the selector.
+
+```
+PodA
+metadata:
+    labels:
+    app: second-app
+    tier: backend
+
+PodB:
+metadata:
+    labels:
+    app: second-app
+
+ selector:
+    matchLabels:
+      app: second-app
+      tier: backend
+```
+
+This will match PodA but not PodB
+
+Now lets try again:
+
+`kubectl apply -f=deployment.yaml`
+
+```
+deployment.apps/second-app-deployment created
+```
+
+now we can see the deployment with:
+
+`kubectl get deployments`
+
+and it's pods
+
+`kubectl get pods`
+
+from one file we've created the deployment and the pods.
+
+Now lets add a service to expose the deployment
+
+## create a service declaratively
+
+In the service.yaml file we can define the service
+
+```
+apiVersion: v1
+```
+
+Note: this actually `core/v1` but because it's core, we can omit it.
+
+define the kind of resource
+
+```
+kind: Service
+```
+
+Then the metadata (name can be anything)
+
+```
+metadata:
+  name: backend-service
+```
+
+Then the spec with a selector to match the pods we want to expose
+
+```
+spec:
+  selector:
+    app: second-app
+    tier: backend
+```
+
+Note: selector of service can only match by labels so there is no `matchLabels:` like in deployment.
+
+We could also only use `app: second-app` to have this service control all pods with at least the label `app: second-app`
+
+next we define the ports:
+
+```
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+```
+
+TCP (default), the port with expose (80) the internal port of our app (8080)
+
+Note: you can define multiple ports (hence the `-`)
+
+then the load balancer type
+
+```
+  type: LoadBalancer
+```
+
+Finally we create our service
+
+`kubectl apply -f=service.yaml`
+
+```
+NAME              TYPE           CLUSTER-IP   EXTERNAL-IP   PORT(S)        AGE
+backend-service   LoadBalancer   10.99.14.8   <pending>     80:30919/TCP   8s
+kubernetes        ClusterIP      10.96.0.1    <none>        443/TCP        7d23h
+```
+
+and now we can expose our app
+
+`minikube service backend-service`
+
+## Updating & Deleting resources
+
+We can change the yaml files re apply the changes to update our resources.
+
+for example changing the deployment.yaml file to have 3 replicas
+
+```
+replicas: 3
+```
+
+save and re apply
+
+`kubectl apply -f=deployment.yaml`
+
+I we wanted to change the image, we can change the image tag and re apply
+
+```
+image: anarkia1985/kub-first-app
+```
+
+then re apply
+
+`kubectl apply -f=deployment.yaml`
+
+what if we wanted to delete the deployment?
+
+`kubectl delete deployment second-app-deployment`
+
+but you can also delete the deployment by deleting the yaml file
+
+`kubectl delete -f=deployment.yaml`
+
+This will delete the resources created by the yaml file (not the yaml file itself)
+
+You can also delete multiple resources at once
+
+`kubectl delete -f=deployment.yaml -f=service.yaml`
+
+or
+
+`kubectl delete -f=deployment.yaml,service.yaml`
+
+## Multiple vs single config files
+
+You can have multiple config files or a single one.
+
+It really depends what you are trying to achieve.
+
+You could argue that a given service is closely related to a given deployment, so it makes sense to have them in the same file.
+
+You could also argue that a given service could be used by multiple deployments, so it makes sense to have them in separate files.
+
+We can create a `master.yaml` (name is up to you) and copy over 
+```
+service.yaml
+
+---
+
+deployment.yaml
+```
+
+Note the `---` is the separator between the 2 objects.
+
+Note: it is better practice to put the service first and then the deployment. Resources are created top to bottom, and by creating the service first, it will listen to the deployment and create the pods and attach them to the service.
+
+But since the resource are continuously monitored, it doesn't really matter.
+
+Then we can apply the master file:
+
+lets first delete the resources
+
+`delete -f deployment.yaml,service.yaml`
+    
+then apply the master file
+
+`kubectl apply -f=master.yaml`
+
+## More on Labels and Selectors
+
+Selectors are used to connect resources together. pods to deployments, deployments to services etc.
+
+THereare different types of selectors:
+- label selectors on the service
+- selector matchLabels in deployment
+
+Where you can use the `matchLabels` selector, you can also use the `matchExpressions` selector. It is a more powerfule way of selecting resources when you have more configuration options.
+
+Instead of a list of labels, you have a list of conditions that all have to be met in order for the selector to match.
+
+```
+spec:
+  selector:
+    matchExpressions:
+      - {key: app, operator: In, values: [second-app, first-app]}
+```
+
+Here: all pods where the app values in the the list of values.
+
+You can also use selectors in commands
+
+`kubectl delete deployments,services -l group=example`
+
+## Liveness Probes
+
+Kubernetes can monitor the health of our pods and restart them if they are not healthy. So how does it know if a pod is healthy or not?
+
+We can define in the `container` a `livenessProbe` which is a command that will be executed periodically to check if the pod is healthy.
+
+```
+spec:
+    containers:
+    - name: second-app
+        image: anarkia1985/kub-first-app:3
+        livenessProbe:
+        httpGet:
+            path: /
+            port: 8080
+        periodSeconds: 10
+        initialDelaySeconds: 5
+```
+
+Check every 10 seconds by doing an httpGet on `/` at port 8080. Wait 5 seconds before starting the check.
+
+## A closer look at the configuration options
+
+There are a lot of configuration options that can be used in the yaml files.
+
+If you check the docks of a container, you'll notice a lot of configs that are similar to docker.
+
+environment variables, volumes, ports, ...
+
+but also how the image should be pulled. imagePullPolicy
+`Always` will always pull the image on a given tag, even if it's already there. (by default it will pull :latest)
+
