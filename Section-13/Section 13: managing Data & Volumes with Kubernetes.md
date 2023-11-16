@@ -144,5 +144,96 @@ The key things is that our container doesn't know where the data is stored, it j
 
 ## A first volume: the emptyDir type
 
+Volumes are attached to pods and are pods specific, which means we have to define volumes in the pod definition.
+
+First lets change our app to have an error route
+
+```
+app.get("/error", (req, res) => {
+  process.exit(1);
+});
+``` 
+
+so we can crash our app and see what happens.
+
+Rebuild with a tag of 1
+
+`docker build -t anarkia1985/kube-data-demo:1 .`
+
+and push 
+
+`docker push anarkia1985/kube-data-demo:1`  
+
+update the container spec in our deployment.yaml file to use the new tag.
+
+```
+spec:
+      containers:
+        - name: story
+          image: anarkia1985/kube-data-demo:1
+```
+
+and apply to kubernetes
+
+`kubectl apply -f=deployment.yaml`
 
 
+expose (if you've stopped it)
+
+`miniKube service story-service`
+
+Our app is working, but when we crash it, it restarts without the data.
+
+Note: the pod didn't restart, simply the container inside the pod restarted.
+
+Lets add a volume to our pod definition.
+
+```
+      volumes:
+        - name: story-volume
+          emptyDir: {}
+```
+
+Volumes is a list. We give it a name and a type. In this case we're using the emptyDir type. `{}` is an empty object were we could add more configuration if the default wasn't enough.
+
+Now that we have a volume, we need to mount it to our container.
+
+```
+      containers:
+        - name: story
+          image: anarkia1985/kube-data-demo:1
+          volumeMounts:
+            - name: story-volume
+              mountPath: /app/story
+```
+
+`/app` is the working directory of our container, `/story` 
+
+```
+const filePath = path.join(__dirname, "story", "text.txt");
+```
+
+Since there can be multiple volumes and and container might bound to multiple volumes, we need to specify which volume we want to mount. We do this by giving it the name of the volume.
+
+```
+name: story-volume
+```
+
+Let's re apply our deployment
+
+```
+GET
+{
+    "message": "Failed to open file."
+}
+```
+
+This time we get a new error. This is because we have an empty volume, so the file doesn't exist.
+
+but if we do a post first, the file is created and we can get it.
+
+But now is we GET `/error` the container restarts but the data is still there.
+
+## A second volume: the hostPath type
+
+The emptyDir type is good basic volume type, but what happens if we have 2 replicas
