@@ -378,9 +378,9 @@ Now we just need to apply everything and we'll have our persistent volume.
 
 ## using a claim in a pod
 
-Kubernetes has a concept called storage classes. 
+Kubernetes has a concept called storage classes.
 
-by defualt we have one: 
+by defualt we have one:
 
 `kubectl get sc`
 
@@ -391,7 +391,7 @@ standard (default)   k8s.io/minikube-hostpath   Delete          Immediate       
 
 The storage class tells kubernetes how to provision the volume/storage.
 
-we need to add the same default storage class (standard) to our PV and PVC 
+we need to add the same default storage class (standard) to our PV and PVC
 
 ```
 storageClassName: standard
@@ -436,3 +436,103 @@ State is a data created and used by your application which must not be lost.
 Regardless of where the data is stored, it must not be lost and survive restarts. This is why we have volumes.
 
 For intermediate results, we probably can use normal volumes. For user data, we need persistent volumes.
+
+## Volumes vs Persistent volumes
+
+Volumes allow you to persist data, either normal volumes or persistent volumes.
+
+Volumes serve to store data that should not be lost no matrtter what happens to the container.
+
+- "normal" volumes are tied to the pod lifecycle. Defined and created together with the pod. They may or may not be destroyed with the pod depending on the type of volume. It can be repetitive and hard to administer on a global level. For small apps it might not be a problem.
+
+- persistent volumes are independent of the pod lifecycle. volume is a standalone cluster resource (NOT attached to a Pod). Created standalone, claimed via a PVC. Can be defined once and used multiple times. Can be administered on a global level.
+
+## Using environment variables
+
+```
+const filePath = path.join(__dirname, "story", "text.txt");
+```
+
+We are currently setting the path to our file in our code, but it is also, but the exact folder name is also defined in our deployment.yaml file.
+
+```
+          volumeMounts:
+            - name: story-volume
+              mountPath: /app/story
+```
+
+So instead of maintaining 2 places, we could leverage environment variables.
+
+Lets use a env var in our app
+
+```
+const filePath = path.join(__dirname, process.env.STORY_FOLDER, "text.txt");
+```
+
+Now lets add the env variable to deployment.yaml
+
+```
+  env:
+    - name: STORY_FOLDER
+      value: 'story'
+```
+
+And now the volumeMount and the env var are together in the same file
+
+Lets rebuild with a new tag and apply our changes
+
+`docker build -t anarkia1985/kube-data-demo:2 .`
+
+`docker push anarkia1985/kube-data-demo:2`
+
+## Using environment variables & ConfigMaps
+
+What if we don't want the env var in our deployment.yaml file? for example if we want to use the same deployment.yaml file for different environments or if different deployments need of the env vars.
+
+This is where configMaps come in.
+
+```
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: data-store-env
+data:
+  # not a list, simply key value pairs
+  folder: 'story'
+  # key: value
+```
+
+Then we apply it
+
+`kubectl apply -f=configMap.yaml`
+
+You can see them with
+
+`kubectl get cm` or `kubectl get configmap`
+
+now in deployment.yaml
+
+```
+env:
+  - name: STORY_FOLDER
+    valueFrom:
+      configMapKeyRef:
+        name: data-store-env
+        key: folder
+
+```
+
+`- name: STORY_FOLDER` is the name of the env var we want to create
+
+`valueFrom:` is the value we want to give it, this supports configMaps (and more)
+
+`configMapKeyRef:` is the type of value we want to give it
+
+`name: data-store-env` is the name of the configMap we want to use
+
+`key: folder` is the key of the value we want to use
+
+re apply the deployment
+
+`kubectl apply -f=environment.yaml`
+
