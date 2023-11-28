@@ -242,3 +242,109 @@ This means we'll need to break up users and auth into separate pods and rely on 
 
 This means different deployments and different services (as the services are tied to the pods and will have different access rules).
 
+Let's move the auth to a separate deployment `auth-deployment.yaml`
+
+```
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth
+  template:
+    metadata:
+      labels:
+        app: auth
+    spec:
+      containers:
+        - name: auth
+          image: anarkia1985/kub-demo-auth:latest
+```
+
+and remove the auth container from the users deployment
+
+Since we need to access it from inside the cluster, we'll need a new service `auth-service.yaml`
+
+```
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+spec:
+  selector:
+    app: auth
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: ClusterIP
+
+```
+
+Note: we don't want LoadBalancer, because we don't want to expose it to the outside world, instead we want to expose it to the cluster with ClusterIP.
+
+So how can we reach it from the users pod? aka what should we use as the AUTH_ADDRESS?
+
+## Pod to pod communication with IP addresses and environment variables
+
+We need the ip address that is generated for the auth service, with services you get stable ip addresses and therefor we can reach the pods
+
+You could apply the auth service and deployment
+
+`kubectl apply -f=auth-deployment.yaml -f=auth-deployment.yaml`
+
+Then get the services
+
+`kubectl get services`
+
+```
+NAME            TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)          AGE
+auth-service    ClusterIP      10.106.81.187    <none>        80/TCP    
+...
+```
+ you can get the ip of the auth service. 
+ 
+ Let's set it as an environment variable AUTH_ADDRESS in the users deployment
+
+ and apply
+
+  `kubectl apply -f=users-deployment.yaml`
+ 
+ But this is not a good way to do it as it's a lot a manual work and what happens if the service restarts and gets a new ip address?
+
+There is a better way, kubernetes provides environment variables for services.
+
+Kubernetes will automatically create environment variables for each service that is running in the cluster and they will be named after the service name.
+
+auth-service -> AUTH_SERVICE_SERVICE_HOST
+users-service -> USERS_SERVICE_SERVICE_HOST
+
+So we can use that in our code
+```
+const response = await axios.get(
+    `http://${process.env.AUTH_SERVICE_SERVICE_HOST}/token/` + hashedPassword + "/" + password
+  );
+
+ ```
+
+ we would also need to update the docker compose file environment variable to use the new name
+
+Rebuild:
+
+`docker build -t anarkia1985/kub-demo-users .`
+
+`docker push anarkia1985/kub-demo-users`
+
+and delete then apply
+
+`kubectl delete -f=users-deployment.yaml`
+
+`kubectl apply -f=users-deployment.yaml`
+
+## Using DNS for pod to pod communication
+
+Using the automatically generated environment variables is a good way to do it, but there is a better way.
+
