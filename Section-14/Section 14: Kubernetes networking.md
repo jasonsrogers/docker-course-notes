@@ -302,18 +302,19 @@ Then get the services
 
 ```
 NAME            TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)          AGE
-auth-service    ClusterIP      10.106.81.187    <none>        80/TCP    
+auth-service    ClusterIP      10.106.81.187    <none>        80/TCP
 ...
 ```
- you can get the ip of the auth service. 
- 
- Let's set it as an environment variable AUTH_ADDRESS in the users deployment
 
- and apply
+you can get the ip of the auth service.
 
-  `kubectl apply -f=users-deployment.yaml`
- 
- But this is not a good way to do it as it's a lot a manual work and what happens if the service restarts and gets a new ip address?
+Let's set it as an environment variable AUTH_ADDRESS in the users deployment
+
+and apply
+
+`kubectl apply -f=users-deployment.yaml`
+
+But this is not a good way to do it as it's a lot a manual work and what happens if the service restarts and gets a new ip address?
 
 There is a better way, kubernetes provides environment variables for services.
 
@@ -323,14 +324,15 @@ auth-service -> AUTH_SERVICE_SERVICE_HOST
 users-service -> USERS_SERVICE_SERVICE_HOST
 
 So we can use that in our code
+
 ```
 const response = await axios.get(
     `http://${process.env.AUTH_SERVICE_SERVICE_HOST}/token/` + hashedPassword + "/" + password
   );
 
- ```
+```
 
- we would also need to update the docker compose file environment variable to use the new name
+we would also need to update the docker compose file environment variable to use the new name
 
 Rebuild:
 
@@ -347,4 +349,217 @@ and delete then apply
 ## Using DNS for pod to pod communication
 
 Using the automatically generated environment variables is a good way to do it, but there is a better way.
+
+Modern kubernetes versions have a built in DNS server (coreDNS) that allows us to use DNS names to reach services.
+
+Cluster interal domain names that are not exposed to the outside world but only used for pod to pod communication.
+
+The pattern is just the service name, so we can use `service-name.namespace` as the domain name.
+
+How to find the namespace?
+
+`kubectl get namespace`
+
+```
+NAME                   STATUS   AGE
+default                Active   25d
+kube-node-lease        Active   25d
+kube-public            Active   25d
+kube-system            Active   25d
+kubernetes-dashboard   Active   25d
+```
+
+Since we didn't specify a namespace, it's in the default namespace.
+
+So we can use `auth-service.default` as the domain name.
+
+## Which approach to use?
+
+It depends on the situation.
+
+If you want to have multiple containers in the same pod, you can use localhost.
+
+But as a rule of thumb, you don't want to have multiple containers in the same pod, because it makes it harder to scale and manage.
+
+If we want pod to pod communication, we'll need to use services as they'll give us stable ip addresses.
+
+Then we can:
+
+- look up the ip address of the service and use it as an environment variable
+- use the automatically generated environment variable
+- use the dns name
+
+DNS will tend to be the best option, as it's simple, we don't need env variables if we are not messing around with docker compose.
+
+## Connecting the task api
+
+Let's replace `auth` in urls with environment variables
+
+```
+  const response = await axios.get(
+    `http://${process.env.AUTH_ADDRESS}/verify-token/` + token
+  );
+```
+
+We'll need a new deployment and service for the task api (service as we'll want to reach it from the outside world)
+
+first let's looks at the deployment
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tasks-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tasks
+  template:
+    metadata:
+      labels:
+        app: tasks
+    spec:
+      containers:
+        - name: tasks
+          image: anarkia1985/kub-demo-tasks:latest
+          env:
+            - name: AUTH_ADDRESS
+              # value: "10.106.81.187"
+              value: "auth-service.default"
+```
+
+and the service
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: tasks-service
+spec:
+  selector:
+    app: tasks
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+  type: LoadBalancer
+```
+
+Build and push the image
+
+`docker build -t anarkia1985/kub-demo-tasks .`
+`docker push anarkia1985/kub-demo-tasks`
+
+Now let's apply the deployment and service
+
+`kubectl apply -f=tasks-deployment.yaml -f=tasks-service.yaml`
+
+It's trying to launch but:
+
+```
+tasks-deployment-85cd876c56-vbzdf   0/1     CrashLoopBackOff   6 (4m58s ago)   11m
+```
+
+Tasks is crashing, why?
+
+If we look at the docker compose, we see that we are using 2 env
+
+```
+environment:
+      TASKS_FOLDER: tasks
+      AUTH_ADDRESS: auth
+```
+
+We need to add the TASKS_FOLDER to the deployment
+
+```
+env:
+  - name: AUTH_ADDRESS
+    # value: "10.106.81.187"
+    value: "auth-service.default"
+  - name: TASKS_FOLDER
+    value: "tasks"
+```
+
+And now it starts
+
+with `kubectl get services` we can get the cluster ip address, then we can do
+
+`minikube service tasks-service`
+
+to get a url to test it out
+
+Postman GET ip/tasks
+
+```
+{
+    "message": "No token provided."
+}
+```
+
+Let's add a token
+
+Headers => authorization => Bearer abc
+
+```
+{
+    "message": "Loading the tasks failed."
+}
+```
+
+But that is normal as we don't have any tasks yet.
+
+Note: don't forget to create `tasks-api/tasks/text.txt`
+
+## Adding a Containerized Front end
+
+Using postman is fine, but having a front end is better :P
+
+In front end we find a simple react app that calls the tasks api which will require user and auth api.
+
+in frontend we can build the image using:
+
+`docker build -t anarkia1985/kub-demo-frontend .`
+
+and push it to docker hub
+
+`docker push anarkia1985/kub-demo-frontend`
+
+to run it locally:
+
+`docker run -p 80:80 anarkia1985/kub-demo-frontend`
+
+We need to allow cors for tasks-app.js
+
+```
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST,GET,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+  next();
+});
+```
+
+and the authorization header
+
+````
+fetch("http://127.0.0.1:56559/tasks", {
+      headers: {
+        Authorization: "Bearer abc",
+      },
+    })
+    ```
+
+and rebuild and push the image
+
+`docker build -t anarkia1985/kub-demo-tasks .`
+
+`docker push anarkia1985/kub-demo-tasks`
+
+Note: Don't forget to add a task to the tasks file otherwise it will fail
+
+Now we need want to deploy it to kubernetes, but what about the url, and what about the deployment?
+
+## Adding a containerized front end
 
