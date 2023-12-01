@@ -395,10 +395,10 @@ DNS will tend to be the best option, as it's simple, we don't need env variables
 
 Let's replace `auth` in urls with environment variables
 
-```
-  const response = await axios.get(
-    `http://${process.env.AUTH_ADDRESS}/verify-token/` + token
-  );
+```javascript
+const response = await axios.get(
+  `http://${process.env.AUTH_ADDRESS}/verify-token/` + token
+);
 ```
 
 We'll need a new deployment and service for the task api (service as we'll want to reach it from the outside world)
@@ -457,7 +457,7 @@ Now let's apply the deployment and service
 
 It's trying to launch but:
 
-```
+```bash
 tasks-deployment-85cd876c56-vbzdf   0/1     CrashLoopBackOff   6 (4m58s ago)   11m
 ```
 
@@ -465,15 +465,15 @@ Tasks is crashing, why?
 
 If we look at the docker compose, we see that we are using 2 env
 
-```
+```yaml
 environment:
-      TASKS_FOLDER: tasks
-      AUTH_ADDRESS: auth
+  TASKS_FOLDER: tasks
+  AUTH_ADDRESS: auth
 ```
 
 We need to add the TASKS_FOLDER to the deployment
 
-```
+```yaml
 env:
   - name: AUTH_ADDRESS
     # value: "10.106.81.187"
@@ -492,9 +492,9 @@ to get a url to test it out
 
 Postman GET ip/tasks
 
-```
+```json
 {
-    "message": "No token provided."
+  "message": "No token provided."
 }
 ```
 
@@ -502,9 +502,9 @@ Let's add a token
 
 Headers => authorization => Bearer abc
 
-```
+```json
 {
-    "message": "Loading the tasks failed."
+  "message": "Loading the tasks failed."
 }
 ```
 
@@ -532,7 +532,7 @@ to run it locally:
 
 We need to allow cors for tasks-app.js
 
-```
+```js
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST,GET,OPTIONS");
@@ -543,13 +543,13 @@ app.use((req, res, next) => {
 
 and the authorization header
 
-````
+```js
 fetch("http://127.0.0.1:56559/tasks", {
-      headers: {
-        Authorization: "Bearer abc",
-      },
-    })
-    ```
+  headers: {
+    Authorization: "Bearer abc",
+  },
+});
+```
 
 and rebuild and push the image
 
@@ -562,4 +562,115 @@ Note: Don't forget to add a task to the tasks file otherwise it will fail
 Now we need want to deploy it to kubernetes, but what about the url, and what about the deployment?
 
 ## Adding a containerized front end
+
+Let's move our previously created image to a kubernetes pod
+
+frontend-deployment.yaml
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: anarkia1985/kub-demo-frontend:latest
+```
+
+and the service
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+spec:
+  selector:
+    app: frontend
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: LoadBalancer
+```
+
+and apply
+
+`kubectl apply -f=frontend-deployment.yaml -f=frontend-service.yaml`
+
+and expose it
+
+`minikube service frontend-service`
+
+Out code however is using a hardcoded ip as a url, which is not great.
+
+Let look at a different trick to resolve this
+
+## Using a revers proxy for front end
+
+We can use a reverse proxy to solve this issue.
+
+We want to send a request to ourselves, to the server that serves the front end (nginx).
+
+We can tell nginx to forward the request to the tasks api
+
+In nginx.conf
+
+```conf
+server {
+  listen 80;
+
+  location /api {
+    proxy_pass http://127.0.0.1:56559;
+  }
+
+  location / {...}
+}
+```
+
+we tell nginx to forward all requests that start with /api to the tasks api.
+
+Note: /api is our choice.
+
+Now in App.js we can change the url to /api/tasks
+
+```js
+fetch("/api/tasks", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: "Bearer abc",
+  },
+  body: JSON.stringify(task),
+});
+```
+
+Now we need to rebuild and push the image
+
+Delete and apply the frontend deployment
+
+It's not working, why?
+
+The url we specified is the load balancer url which we use to reach cluster services from the outside world. But nginx is spun up inside the cluster, so our reverse proxy needs to use cluster internal urls.
+
+So we can use the dns name of the tasks service
+
+```conf
+  location /api/ {
+    proxy_pass http://tasks-service.default:8000/;
+  }
+```
+rebuild and push the image, delete and apply the deployment
+
+and tada, it works
 
