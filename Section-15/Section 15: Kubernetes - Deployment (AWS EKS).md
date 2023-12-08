@@ -427,3 +427,34 @@ and in the container, add a volume mount
           - name: efs-vol
             mountPath: /app/users
 ```
+
+Now that we have everything setup let's use EFS.
+
+## Using the EFS volume
+
+We update the user-actions and user-routes to use the file system.
+
+So lets rebuild and push
+
+`docker build --platform linux/amd64 -t anarkia1985/kub-dep-users .`
+
+`docker push anarkia1985/kub-dep-users`
+
+Let's delete the users deployments to force a new deployment
+
+`kubectl delete deployment users-deployment`
+
+Now let's apply the changes
+
+`kubectl apply -f=users.yaml`
+
+Then we can go to post man and try to create a user
+
+if we do a post to `/signup` we're creating a user and logs
+
+then we can go a get to `/logs` to see the logs proving that the file system is working.
+
+We can also go back to EFS select our file system and and got to monitoring to see the usage.
+
+We can test that it's persistent by changing the replica count to 0 and then back to 1 and see that the logs are still there.
+
